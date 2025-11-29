@@ -48,32 +48,54 @@ def _process_image_sync(file_bytes, max_size=2048, to_webp=True):
 async def process_image(file_bytes, max_size=2048, to_webp=True):
     return await asyncio.to_thread(_process_image_sync, file_bytes, max_size, to_webp)
 
-def _upload_sync(file_bytes, folder, extension, public_id=None):
-    upload_params = {
-        "folder": folder,
-        "resource_type": "image",
-        "format": extension,
-        "overwrite": False,
-        "invalidate": False,
-        "eager": [],  # Skip eager transformations
-        "notification_url": None,  # Skip webhook
-        "async": False,  # Ensure synchronous (default, but explicit)
-    }
+# def _upload_sync(file_bytes, folder, extension, public_id=None):
+#     upload_params = {
+#         "folder": folder,
+#         "resource_type": "image",
+#         "format": extension,
+#         "overwrite": False,
+#         "invalidate": False,
+#         "eager": [],  # Skip eager transformations
+#         "notification_url": None,  # Skip webhook
+#         "async": False,  # Ensure synchronous (default, but explicit)
+#     }
     
-    if public_id:
-        upload_params["public_id"] = public_id
-        upload_params["unique_filename"] = False
+#     if public_id:
+#         upload_params["public_id"] = public_id
+#         upload_params["unique_filename"] = False
     
-    return cloudinary.uploader.upload(file_bytes, **upload_params)
+#     return cloudinary.uploader.upload(file_bytes, **upload_params)
+
+# async def upload_image(file_obj, folder: str = "templates", max_size=2048):
+#     file_bytes = await file_obj.read()
+#     buffer, extension = await process_image(file_bytes, max_size=max_size)
+    
+#     file_hash = hashlib.md5(buffer.getvalue()).hexdigest()[:12]
+#     public_id = f"{file_hash}"
+    
+#     res = await asyncio.to_thread(_upload_sync, buffer, folder, extension, public_id)
+#     return res["secure_url"], res["public_id"]
 
 async def upload_image(file_obj, folder: str = "templates", max_size=2048):
     file_bytes = await file_obj.read()
-    buffer, extension = await process_image(file_bytes, max_size=max_size)
-    
-    file_hash = hashlib.md5(buffer.getvalue()).hexdigest()[:12]
-    public_id = f"{file_hash}"
-    
-    res = await asyncio.to_thread(_upload_sync, buffer, folder, extension, public_id)
+
+    # keep your PIL preprocessing
+    buffer, _ = await process_image(file_bytes, max_size=max_size)
+
+    # DO NOT generate a custom hash public_id anymore
+    # DO NOT override Cloudinary auto-naming
+
+    res = await asyncio.to_thread(
+        cloudinary.uploader.upload,
+        buffer,
+        folder=folder,
+        resource_type="image",
+        # let Cloudinary determine the final format/extension
+        use_filename=True,
+        unique_filename=True,
+        overwrite=False,
+    )
+
     return res["secure_url"], res["public_id"]
 
 async def delete_images(public_id: str, thumbnail_p_id: str):
@@ -126,5 +148,4 @@ async def upload_images(template_file, thumbnail_file):
 
 def get_public_id(url):
     match = re.search(r"/upload/(?:v\d+/)?(.+)\.\w+$", url)
-    public_id = match.group(1) if match else None
-    return public_id
+    return match.group(1) if match else None
