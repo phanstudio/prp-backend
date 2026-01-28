@@ -251,3 +251,6 @@ async def check_alive():
     """
     return {"status": "OK"}
 
+@router.get("/")
+async def root():
+    return {"message": "Prp meme API", "status": "online"}
