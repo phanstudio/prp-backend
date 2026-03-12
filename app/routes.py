@@ -76,6 +76,7 @@ async def sign_cloudinary_upload(
             upload_preset=sign_request.upload_preset or settings.cloud_signed_upload_preset,
             allowed_formats=sign_request.allowed_formats,
             max_file_size=sign_request.max_file_size,
+            eager=sign_request.eager,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
