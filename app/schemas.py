@@ -154,6 +154,7 @@ class CloudinarySignResponse(BaseModel):
     expires_in: int
     upload_url: str
     eager: Optional[str] = None        # ✅ the serialized transform string
+    eager_async: Optional[str] = None        # ✅ the serialized transform string
 
 
 # class TemplateBase(BaseModel):
