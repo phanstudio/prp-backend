@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr, Field, ConfigDict
-from typing import List, Optional, Union
+from typing import List, Optional, Union, Literal
 from datetime import datetime
 # from pydantic_extra_types.color import Color
 
@@ -131,6 +131,29 @@ class VariantOut(VariantBase):
 
     model_config = ConfigDict(from_attributes=True)
 
+
+class CloudinarySignRequest(BaseModel):
+    folder: Literal["templates", "thumbnail", "variants"] = "templates"
+    resource_type: Literal["image"] = "image"
+    upload_preset: Optional[str] = None
+    allowed_formats: Optional[List[str]] = None
+    max_file_size: Optional[int] = Field(default=None, gt=0)
+    eager: Optional[bool] = False      # ✅ frontend just passes true for thumbnail
+
+
+class CloudinarySignResponse(BaseModel):
+    timestamp: int
+    signature: str
+    api_key: str
+    cloud_name: str
+    folder: str
+    resource_type: str
+    upload_preset: Optional[str] = None
+    allowed_formats: Optional[List[str]] = None
+    max_file_size: Optional[int] = None
+    expires_in: int
+    upload_url: str
+    eager: Optional[str] = None        # ✅ the serialized transform string
 
 
 # class TemplateBase(BaseModel):
