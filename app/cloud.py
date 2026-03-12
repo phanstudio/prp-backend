@@ -182,6 +182,8 @@ def generate_signed_upload_data(
         "folder": folder,
     }
 
+    eager_changes = "c_limit,f_webp,h_512,q_80,w_512"
+
     if upload_preset:
         params_to_sign["upload_preset"] = upload_preset
     if allowed_formats:
@@ -190,7 +192,7 @@ def generate_signed_upload_data(
         params_to_sign["max_file_size"] = max_file_size
     if eager:
         # Must be serialized exactly this way for signing
-        params_to_sign["eager"] = "c_limit,f_webp,h_512,q_80,w_512"
+        params_to_sign["eager"] = eager_changes
 
     signature = cloudinary.utils.api_sign_request(params_to_sign, settings.cloud_api_secret)
     return {
@@ -206,5 +208,5 @@ def generate_signed_upload_data(
         "expires_in": SIGNED_UPLOAD_TTL_SECONDS,
         "upload_url": f"https://api.cloudinary.com/v1_1/{settings.cloud_name}/{resource_type}/upload",
         "user_id": user_id,
-        "eager": "c_limit,h_512,w_512" if eager else None,
+        "eager": eager_changes if eager else None,
     }
