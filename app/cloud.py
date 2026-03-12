@@ -193,7 +193,6 @@ def generate_signed_upload_data(
     if eager:
         # Must be serialized exactly this way for signing
         params_to_sign["eager"] = eager_changes
-        params_to_sign["eager_async"] = "false"   # 👈 IMPORTANT
 
     signature = cloudinary.utils.api_sign_request(params_to_sign, settings.cloud_api_secret)
     return {
@@ -210,5 +209,4 @@ def generate_signed_upload_data(
         "upload_url": f"https://api.cloudinary.com/v1_1/{settings.cloud_name}/{resource_type}/upload",
         "user_id": user_id,
         "eager": eager_changes if eager else None,
-        "eager_async": params_to_sign.get("eager_async", None),
     }
