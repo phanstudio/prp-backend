@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr, Field, ConfigDict
-from typing import List, Optional, Union
+from typing import List, Optional, Union, Literal
 from datetime import datetime
 # from pydantic_extra_types.color import Color
 
@@ -130,6 +130,28 @@ class VariantOut(VariantBase):
     thumbnail_url:str
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class CloudinarySignRequest(BaseModel):
+    folder: Literal["templates", "thumbnail", "variants"] = "templates"
+    resource_type: Literal["image"] = "image"
+    upload_preset: Optional[str] = None
+    allowed_formats: Optional[List[str]] = None
+    max_file_size: Optional[int] = Field(default=None, gt=0)
+
+
+class CloudinarySignResponse(BaseModel):
+    timestamp: int
+    signature: str
+    api_key: str
+    cloud_name: str
+    folder: str
+    resource_type: str
+    upload_preset: Optional[str] = None
+    allowed_formats: Optional[List[str]] = None
+    max_file_size: Optional[int] = None
+    expires_in: int
+    upload_url: str
 
 
 
