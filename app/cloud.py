@@ -171,6 +171,7 @@ def generate_signed_upload_data(
     upload_preset: Optional[str] = None,
     allowed_formats: Optional[Sequence[str]] = None,
     max_file_size: Optional[int] = None,
+    eager: Optional[list] = None,      # ✅ new param
 ):
     if folder not in ALLOWED_UPLOAD_FOLDERS:
         raise ValueError(f"Unsupported folder '{folder}'. Allowed: {sorted(ALLOWED_UPLOAD_FOLDERS)}")
@@ -179,7 +180,6 @@ def generate_signed_upload_data(
     params_to_sign = {
         "timestamp": timestamp,
         "folder": folder,
-        # "resource_type": resource_type,
     }
 
     if upload_preset:
@@ -188,6 +188,9 @@ def generate_signed_upload_data(
         params_to_sign["allowed_formats"] = ",".join(allowed_formats)
     if max_file_size:
         params_to_sign["max_file_size"] = max_file_size
+    if eager:
+        # Must be serialized exactly this way for signing
+        params_to_sign["eager"] = "c_limit,f_webp,h_512,q_80,w_512"
 
     signature = cloudinary.utils.api_sign_request(params_to_sign, settings.cloud_api_secret)
     return {
@@ -203,4 +206,5 @@ def generate_signed_upload_data(
         "expires_in": SIGNED_UPLOAD_TTL_SECONDS,
         "upload_url": f"https://api.cloudinary.com/v1_1/{settings.cloud_name}/{resource_type}/upload",
         "user_id": user_id,
+        "eager": "c_limit,h_512,w_512" if eager else None,
     }

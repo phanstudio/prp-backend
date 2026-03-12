@@ -138,6 +138,7 @@ class CloudinarySignRequest(BaseModel):
     upload_preset: Optional[str] = None
     allowed_formats: Optional[List[str]] = None
     max_file_size: Optional[int] = Field(default=None, gt=0)
+    eager: Optional[bool] = False      # ✅ frontend just passes true for thumbnail
 
 
 class CloudinarySignResponse(BaseModel):
@@ -152,7 +153,7 @@ class CloudinarySignResponse(BaseModel):
     max_file_size: Optional[int] = None
     expires_in: int
     upload_url: str
-
+    eager: Optional[str] = None        # ✅ the serialized transform string
 
 
 # class TemplateBase(BaseModel):
