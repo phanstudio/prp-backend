@@ -146,6 +146,7 @@ async def update_template(
     description: Optional[str] = Form(None),
     tag: Optional[str] = Form(None),
     text_elements: Optional[List[schemas.TextElement]] = Depends(parse_text_elements),
+    file: Optional[UploadFile] = File(None),
     file2: Optional[UploadFile] = File(None),
     thumbnail_url: Optional[str] = Form(None),
     image_url: Optional[str] = Form(None),
@@ -162,27 +163,55 @@ async def update_template(
         tag=tag
     ).model_dump()
     
-    # If new thumbnail uploaded → update only thumbnail, keep original image
-    if file2:
-        if not image_url or not image_public_id or not thumbnail_public_id:
+    # If new image(s) uploaded -> update with stable public_id(s)
+    if file or file2:
+        if not image_public_id or not thumbnail_public_id:
             raise HTTPException(
                 status_code=400,
-                detail="For thumbnail file update, provide image_url, image_public_id, and thumbnail_public_id.",
+                detail="For file updates, provide image_public_id and thumbnail_public_id.",
             )
-        
+
         try:
-            upload_task = asyncio.create_task(
-                cloud.update_images(image_url, image_public_id, thumbnail_public_id, file2)
-            )
-            _, _, thumb_url, thumb_id = await upload_task
-            
-            # Update with new thumbnail but keep original image
-            update_data.update({
-                "image_url": image_url,  # unchanged
-                "thumbnail_url": thumb_url,  # new
-                "image_public_id": image_public_id,  # unchanged
-                "thumbnail_public_id": thumb_id,  # new
-            })
+            if file and file2:
+                image_task = asyncio.create_task(
+                    cloud.update_image(image_public_id, file, folder="templates")
+                )
+                thumb_task = asyncio.create_task(
+                    cloud.update_image(
+                        thumbnail_public_id,
+                        file2,
+                        folder=cloud.THUMBNAIL,
+                        max_size=cloud.THUMBNAIL_SIZE,
+                    )
+                )
+                (new_image_url, _), (new_thumb_url, new_thumb_id) = await asyncio.gather(image_task, thumb_task)
+                update_data.update({
+                    "image_url": new_image_url,
+                    "thumbnail_url": new_thumb_url,
+                    "image_public_id": image_public_id,
+                    "thumbnail_public_id": new_thumb_id,
+                })
+            elif file:
+                new_image_url, _ = await cloud.update_image(image_public_id, file, folder="templates")
+                update_data.update({
+                    "image_url": new_image_url,
+                    "image_public_id": image_public_id,
+                })
+                if thumbnail_url and thumbnail_public_id:
+                    update_data.update({
+                        "thumbnail_url": thumbnail_url,
+                        "thumbnail_public_id": thumbnail_public_id,
+                    })
+            else:
+                thumb_url, thumb_id = await cloud.update_images(
+                    image_url, image_public_id, thumbnail_public_id, file2
+                )
+                update_data.update({
+                    "image_url": image_url,
+                    "thumbnail_url": thumb_url,
+                    "image_public_id": image_public_id,
+                    "thumbnail_public_id": thumb_id,
+                })
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Image upload failed: {e}")
     elif any([thumbnail_url, image_url, image_public_id, thumbnail_public_id]):
