@@ -1,14 +1,18 @@
 import cloudinary
 import cloudinary.uploader
+import cloudinary.utils
 from core.settings import settings
 from PIL import Image
 import io
 import asyncio
-import hashlib
 import re
+import time
+from typing import Optional, Sequence
 
 THUMBNAIL="thumbnail" #"templates/thumbnails"
 THUMBNAIL_SIZE=512
+SIGNED_UPLOAD_TTL_SECONDS = 60
+ALLOWED_UPLOAD_FOLDERS = {"templates", THUMBNAIL, "variants"}
 
 cloudinary.config(
     cloud_name=settings.cloud_name,
@@ -76,7 +80,7 @@ async def process_image(file_bytes, max_size=2048, to_webp=True):
 #     res = await asyncio.to_thread(_upload_sync, buffer, folder, extension, public_id)
 #     return res["secure_url"], res["public_id"]
 
-async def upload_image(file_obj, folder: str = "templates", max_size=2048):
+async def upload_image(file_obj, folder: str = "templates", max_size=2048, public_id: Optional[str] = None):
     file_bytes = await file_obj.read()
 
     # keep your PIL preprocessing
@@ -85,15 +89,29 @@ async def upload_image(file_obj, folder: str = "templates", max_size=2048):
     # DO NOT generate a custom hash public_id anymore
     # DO NOT override Cloudinary auto-naming
 
-    res = await asyncio.to_thread(
-        cloudinary.uploader.upload,
-        buffer,
+    upload_kwargs = dict(
         folder=folder,
         resource_type="image",
         # let Cloudinary determine the final format/extension
         use_filename=True,
         unique_filename=True,
         overwrite=False,
+    )
+
+    if public_id:
+        # Keep a stable URL by reusing the same public_id
+        upload_kwargs.update(
+            public_id=public_id,
+            overwrite=True,
+            invalidate=True,
+            use_filename=False,
+            unique_filename=False,
+        )
+
+    res = await asyncio.to_thread(
+        cloudinary.uploader.upload,
+        buffer,
+        **upload_kwargs,
     )
 
     return res["secure_url"], res["public_id"]
@@ -107,14 +125,8 @@ async def delete_images(public_id: str, thumbnail_p_id: str):
     return result
 
 async def update_image(cloudinary_public_id, file, folder="templates", max_size=2048):
-    # Delete old image if exists
-    if cloudinary_public_id:
-        try:
-            cloudinary.uploader.destroy(cloudinary_public_id)
-        except Exception as e:
-            # logging.warning(f"Failed to delete old image: {str(e)}")
-            print(f"Failed to delete old image: {str(e)}")
-    return await upload_image(file, folder, max_size)
+    # Re-upload using the same public_id to keep a stable delivery URL.
+    return await upload_image(file, folder, max_size, public_id=cloudinary_public_id)
 
 async def update_images(template_url, template_public_id, thumbnail_public_id, thumbnail_file):
     # call update_image directly since we only have one coroutine
@@ -149,3 +161,46 @@ async def upload_images(template_file, thumbnail_file):
 def get_public_id(url):
     match = re.search(r"/upload/(?:v\d+/)?(.+)\.\w+$", url)
     return match.group(1) if match else None
+
+
+def generate_signed_upload_data(
+    *,
+    user_id: int,
+    folder: str = "templates",
+    resource_type: str = "image",
+    upload_preset: Optional[str] = None,
+    allowed_formats: Optional[Sequence[str]] = None,
+    max_file_size: Optional[int] = None,
+):
+    if folder not in ALLOWED_UPLOAD_FOLDERS:
+        raise ValueError(f"Unsupported folder '{folder}'. Allowed: {sorted(ALLOWED_UPLOAD_FOLDERS)}")
+
+    timestamp = int(time.time())
+    params_to_sign = {
+        "timestamp": timestamp,
+        "folder": folder,
+        "resource_type": resource_type,
+    }
+
+    if upload_preset:
+        params_to_sign["upload_preset"] = upload_preset
+    if allowed_formats:
+        params_to_sign["allowed_formats"] = ",".join(allowed_formats)
+    if max_file_size:
+        params_to_sign["max_file_size"] = max_file_size
+
+    signature = cloudinary.utils.api_sign_request(params_to_sign, settings.cloud_api_secret)
+    return {
+        "timestamp": timestamp,
+        "signature": signature,
+        "api_key": settings.cloud_api_key,
+        "cloud_name": settings.cloud_name,
+        "folder": folder,
+        "resource_type": resource_type,
+        "upload_preset": upload_preset,
+        "allowed_formats": list(allowed_formats) if allowed_formats else None,
+        "max_file_size": max_file_size,
+        "expires_in": SIGNED_UPLOAD_TTL_SECONDS,
+        "upload_url": f"https://api.cloudinary.com/v1_1/{settings.cloud_name}/{resource_type}/upload",
+        "user_id": user_id,
+    }
