@@ -179,7 +179,7 @@ def generate_signed_upload_data(
     params_to_sign = {
         "timestamp": timestamp,
         "folder": folder,
-        "resource_type": resource_type,
+        # "resource_type": resource_type,
     }
 
     if upload_preset:
