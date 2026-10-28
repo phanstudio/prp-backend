@@ -4,3 +4,5 @@
 /SECURITY.md
 /test.db
 /__pycache__
+
+*.pyc

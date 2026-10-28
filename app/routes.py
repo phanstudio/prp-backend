@@ -57,7 +57,26 @@ def parse_text_elements(text_elements: str = Form(...)) -> List[schemas.TextElem
     try:
         parsed = json.loads(text_elements)
         for i in parsed:
-            i["id"] = float(i["id"])
+            if "id" in i and i["id"] is not None:
+                try:
+                    i["id"] = float(i["id"])
+                except (ValueError, TypeError):
+                    pass
+        return [schemas.TextElement(**t) for t in parsed]
+    except (ValueError, ValidationError) as e:
+        raise HTTPException(status_code=400, detail=f"Invalid text_elements JSON: {e}")
+
+def parse_optional_text_elements(text_elements: Optional[str] = Form(None)) -> Optional[List[schemas.TextElement]]:
+    if not text_elements:
+        return None
+    try:
+        parsed = json.loads(text_elements)
+        for i in parsed:
+            if "id" in i and i["id"] is not None:
+                try:
+                    i["id"] = float(i["id"])
+                except (ValueError, TypeError):
+                    pass
         return [schemas.TextElement(**t) for t in parsed]
     except (ValueError, ValidationError) as e:
         raise HTTPException(status_code=400, detail=f"Invalid text_elements JSON: {e}")
@@ -130,8 +149,15 @@ async def create_template(
         raise HTTPException(status_code=500, detail=f"Database error: {e}")
 
 @router.get("/templates", response_model=List[schemas.TemplateOut])
-async def list_templates(search: Optional[str] = None, skip: int = 0, limit: int = 10, db: AsyncSession = Depends(database.get_db)):
-    return await crud.list_templates(db, skip=skip, limit=limit, search=search)
+async def list_templates(
+    search: Optional[str] = None,
+    tag: Optional[str] = None,
+    sort: Optional[str] = "newest",
+    skip: int = 0,
+    limit: int = 10,
+    db: AsyncSession = Depends(database.get_db)
+):
+    return await crud.list_templates(db, skip=skip, limit=limit, search=search, tag=tag, sort=sort)
 
 @router.get("/templates/{template_id}", response_model=schemas.TemplateOut)
 async def get_template(template_id: int, db: AsyncSession = Depends(database.get_db)):
@@ -140,13 +166,13 @@ async def get_template(template_id: int, db: AsyncSession = Depends(database.get
         raise HTTPException(status_code=404, detail="Template not found")
     return tmpl
 
-@router.put("/templates/{template_id}", status_code=status.HTTP_206_PARTIAL_CONTENT)
+@router.put("/templates/{template_id}", status_code=status.HTTP_200_OK)
 async def update_template(
     template_id: int,
-    name: Optional[str] = Form(...),
+    name: Optional[str] = Form(None),
     description: Optional[str] = Form(None),
     tag: Optional[str] = Form(None),
-    text_elements: Optional[List[schemas.TextElement]] = Depends(parse_text_elements),
+    text_elements: Optional[List[schemas.TextElement]] = Depends(parse_optional_text_elements),
     file: Optional[UploadFile] = File(None),
     file2: Optional[UploadFile] = File(None),
     thumbnail_url: Optional[str] = Form(None),
@@ -156,79 +182,84 @@ async def update_template(
     current_user=Depends(auth.get_current_active_user),
     db: AsyncSession = Depends(database.get_db),
 ):
-    # Initialize update_data with the basic fields
-    update_data = schemas.TemplateCreate(
-        name=name, 
-        description=description, 
-        text_elements=text_elements, 
-        tag=tag
-    ).model_dump()
-    
-    # If new image(s) uploaded -> update with stable public_id(s)
-    if file or file2:
-        if not image_public_id or not thumbnail_public_id:
-            raise HTTPException(
-                status_code=400,
-                detail="For file updates, provide image_public_id and thumbnail_public_id.",
-            )
+    # Fetch existing template to ensure it exists and get stored public IDs
+    existing_template = await crud.get_template(db, template_id)
+    if not existing_template:
+        raise HTTPException(status_code=404, detail="Template not found")
+    if not current_user.is_superuser and existing_template.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not permitted to update this template")
 
+    # Use database-stored public IDs if not provided by client
+    target_image_public_id = image_public_id or existing_template.image_public_id
+    target_thumbnail_public_id = thumbnail_public_id or existing_template.thumbnail_public_id
+    target_image_url = image_url or existing_template.image_url
+    target_thumbnail_url = thumbnail_url or existing_template.thumbnail_url
+
+    update_data = {}
+    if name is not None:
+        update_data["name"] = name
+    if description is not None:
+        update_data["description"] = description
+    if tag is not None:
+        update_data["tag"] = tag
+    if text_elements is not None:
+        update_data["text_elements"] = [
+            t.model_dump() if hasattr(t, "model_dump") else dict(t) for t in text_elements
+        ]
+
+    # Handle image update(s)
+    if file or file2:
         try:
             if file and file2:
                 image_task = asyncio.create_task(
-                    cloud.update_image(image_public_id, file, folder="templates")
+                    cloud.update_image(target_image_public_id, file, folder="templates")
                 )
                 thumb_task = asyncio.create_task(
                     cloud.update_image(
-                        thumbnail_public_id,
+                        target_thumbnail_public_id,
                         file2,
                         folder=cloud.THUMBNAIL,
                         max_size=cloud.THUMBNAIL_SIZE,
                     )
                 )
-                (new_image_url, _), (new_thumb_url, new_thumb_id) = await asyncio.gather(image_task, thumb_task)
+                (new_image_url, new_image_id), (new_thumb_url, new_thumb_id) = await asyncio.gather(image_task, thumb_task)
                 update_data.update({
                     "image_url": new_image_url,
                     "thumbnail_url": new_thumb_url,
-                    "image_public_id": image_public_id,
+                    "image_public_id": new_image_id,
                     "thumbnail_public_id": new_thumb_id,
                 })
             elif file:
-                new_image_url, _ = await cloud.update_image(image_public_id, file, folder="templates")
-                update_data.update({
-                    "image_url": new_image_url,
-                    "image_public_id": image_public_id,
-                })
-                if thumbnail_url and thumbnail_public_id:
-                    update_data.update({
-                        "thumbnail_url": thumbnail_url,
-                        "thumbnail_public_id": thumbnail_public_id,
-                    })
-            else:
-                thumb_url, thumb_id = await cloud.update_images(
-                    image_url, image_public_id, thumbnail_public_id, file2
+                new_image_url, new_image_id = await cloud.update_image(
+                    target_image_public_id, file, folder="templates"
                 )
                 update_data.update({
-                    "image_url": image_url,
-                    "thumbnail_url": thumb_url,
-                    "image_public_id": image_public_id,
-                    "thumbnail_public_id": thumb_id,
+                    "image_url": new_image_url,
+                    "image_public_id": new_image_id,
+                })
+            else:
+                # only thumbnail updated (e.g. from template editor)
+                new_thumb_url, new_thumb_id = await cloud.update_image(
+                    target_thumbnail_public_id,
+                    file2,
+                    folder=cloud.THUMBNAIL,
+                    max_size=cloud.THUMBNAIL_SIZE,
+                )
+                update_data.update({
+                    "thumbnail_url": new_thumb_url,
+                    "thumbnail_public_id": new_thumb_id,
                 })
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Image upload failed: {e}")
-    elif any([thumbnail_url, image_url, image_public_id, thumbnail_public_id]):
-        if not all([thumbnail_url, image_url, image_public_id, thumbnail_public_id]):
-            raise HTTPException(
-                status_code=400,
-                detail="Provide all of image_url, image_public_id, thumbnail_url, thumbnail_public_id.",
-            )
-        update_data.update(
-            {
-                "image_url": image_url,
-                "thumbnail_url": thumbnail_url,
-                "image_public_id": image_public_id,
-                "thumbnail_public_id": thumbnail_public_id,
-            }
-        )
+    elif any([thumbnail_url, image_url]):
+        if image_url:
+            update_data["image_url"] = image_url
+            if image_public_id:
+                update_data["image_public_id"] = image_public_id
+        if thumbnail_url:
+            update_data["thumbnail_url"] = thumbnail_url
+            if thumbnail_public_id:
+                update_data["thumbnail_public_id"] = thumbnail_public_id
 
     result = await crud.update_template(db, template_id, update_data, current_user)
     if not result:

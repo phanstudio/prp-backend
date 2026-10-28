@@ -1,0 +1,22 @@
+[project]
+name = "prp-backend"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "pydantic[email]",
+    "sqlalchemy[asyncio]",
+    "passlib[argon2]==1.7.4",
+    "python-jose",
+    "pydantic-settings",
+    "python-multipart",
+    "cloudinary",
+    "psycopg2-binary",
+    "pydantic-extra-types",
+    "argon2-cffi",
+    "asyncpg",
+    "pillow",
+]

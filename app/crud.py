@@ -2,7 +2,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from . import models, schemas
 from core import auth
-from sqlalchemy import delete, update, desc
+from sqlalchemy import delete, update, desc, func
 
 
 # --- USERS --- #
@@ -75,6 +75,8 @@ async def create_template(
     }
 
 async def update_template(db: AsyncSession, template_id: int, update_data: dict, current_user=None):
+    if not update_data:
+        return True
     stmt = (
         update(models.Template)
         .where(models.Template.id == template_id)
@@ -107,8 +109,17 @@ async def list_templates(
     limit: int = 10,
     search: str | None = None,
     tag: str | None = None,
+    sort: str | None = "newest",
 ):
-    stmt = select(models.Template)
+    if sort == "popular":
+        stmt = (
+            select(models.Template)
+            .outerjoin(models.Variant, models.Template.id == models.Variant.source_id)
+            .group_by(models.Template.id)
+        )
+    else:
+        stmt = select(models.Template)
+
     if search:
         stmt = stmt.where(
             models.Template.name.ilike(f"%{search}%")
@@ -117,7 +128,10 @@ async def list_templates(
     if tag:
         stmt = stmt.where(models.Template.tag.ilike(f"%{tag}%"))
 
-    stmt = stmt.order_by(desc(models.Template.created_at))
+    if sort == "popular":
+        stmt = stmt.order_by(desc(func.count(models.Variant.id)), desc(models.Template.created_at))
+    else:
+        stmt = stmt.order_by(desc(models.Template.created_at))
 
     result = await db.execute(stmt.offset(skip).limit(limit))
     return result.scalars().all()

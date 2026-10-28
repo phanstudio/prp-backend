@@ -29,8 +29,19 @@ cloudinary.config(
 def _process_image_sync(file_bytes, max_size=2048, to_webp=True):
     img = Image.open(io.BytesIO(file_bytes))
     
-    # Only convert if not already RGB
-    if img.mode != "RGB":
+    # Handle transparency properly
+    if img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info):
+        if to_webp:
+            if img.mode != "RGBA":
+                img = img.convert("RGBA")
+        else:
+            # For JPEG, composite onto white background so transparent pixels don't turn black
+            background = Image.new("RGB", img.size, (255, 255, 255))
+            if img.mode != "RGBA":
+                img = img.convert("RGBA")
+            background.paste(img, mask=img.split()[3])
+            img = background
+    elif img.mode != "RGB":
         img = img.convert("RGB")
 
     # Calculate new size once
@@ -40,9 +51,9 @@ def _process_image_sync(file_bytes, max_size=2048, to_webp=True):
     extension = "webp" if to_webp else "jpg"
 
     buffer = io.BytesIO()
-    # Use method="fastest" for WebP, remove optimize for JPEG
+    # Use method=0 for fastest WebP compression
     if to_webp:
-        img.save(buffer, format=img_format, quality=75, method=0)  # method=0 is fastest
+        img.save(buffer, format=img_format, quality=75, method=0)
     else:
         img.save(buffer, format=img_format, quality=75, optimize=False)
     
@@ -52,54 +63,24 @@ def _process_image_sync(file_bytes, max_size=2048, to_webp=True):
 async def process_image(file_bytes, max_size=2048, to_webp=True):
     return await asyncio.to_thread(_process_image_sync, file_bytes, max_size, to_webp)
 
-# def _upload_sync(file_bytes, folder, extension, public_id=None):
-#     upload_params = {
-#         "folder": folder,
-#         "resource_type": "image",
-#         "format": extension,
-#         "overwrite": False,
-#         "invalidate": False,
-#         "eager": [],  # Skip eager transformations
-#         "notification_url": None,  # Skip webhook
-#         "async": False,  # Ensure synchronous (default, but explicit)
-#     }
-    
-#     if public_id:
-#         upload_params["public_id"] = public_id
-#         upload_params["unique_filename"] = False
-    
-#     return cloudinary.uploader.upload(file_bytes, **upload_params)
-
-# async def upload_image(file_obj, folder: str = "templates", max_size=2048):
-#     file_bytes = await file_obj.read()
-#     buffer, extension = await process_image(file_bytes, max_size=max_size)
-    
-#     file_hash = hashlib.md5(buffer.getvalue()).hexdigest()[:12]
-#     public_id = f"{file_hash}"
-    
-#     res = await asyncio.to_thread(_upload_sync, buffer, folder, extension, public_id)
-#     return res["secure_url"], res["public_id"]
-
 async def upload_image(file_obj, folder: str = "templates", max_size=2048, public_id: Optional[str] = None):
     file_bytes = await file_obj.read()
 
-    # keep your PIL preprocessing
+    # PIL preprocessing with transparency support
     buffer, _ = await process_image(file_bytes, max_size=max_size)
-
-    # DO NOT generate a custom hash public_id anymore
-    # DO NOT override Cloudinary auto-naming
 
     upload_kwargs = dict(
         folder=folder,
         resource_type="image",
-        # let Cloudinary determine the final format/extension
         use_filename=True,
         unique_filename=True,
         overwrite=False,
     )
 
     if public_id:
-        # Keep a stable URL by reusing the same public_id
+        # Keep a stable delivery URL by reusing the existing public_id
+        # Remove folder param so Cloudinary does not nest paths (e.g., templates/templates/...)
+        upload_kwargs.pop("folder", None)
         upload_kwargs.update(
             public_id=public_id,
             overwrite=True,
@@ -119,8 +100,8 @@ async def upload_image(file_obj, folder: str = "templates", max_size=2048, publi
 async def delete_images(public_id: str, thumbnail_p_id: str):
     loop = asyncio.get_running_loop()
     result = await asyncio.gather(
-        loop.run_in_executor(None, cloudinary.uploader.destroy, public_id),
-        loop.run_in_executor(None, cloudinary.uploader.destroy, thumbnail_p_id),
+        loop.run_in_executor(None, lambda: cloudinary.uploader.destroy(public_id, invalidate=True)),
+        loop.run_in_executor(None, lambda: cloudinary.uploader.destroy(thumbnail_p_id, invalidate=True)),
     )
     return result
 

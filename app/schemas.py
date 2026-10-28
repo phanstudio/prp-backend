@@ -11,11 +11,11 @@ from datetime import datetime
 
 # Text element schema (not a DB model)
 class TextElement(BaseModel):
-    id: Optional[float] = None # unnessesary since its no being auto gen
+    id: Optional[Union[str, float, int]] = None
     text: str
     x: float
     y: float
-    font_size: int = Field(default=14, ge=8, le=101)
+    font_size: Union[int, float] = Field(default=14, ge=1)
     color: str = Field(default="#000000")
     rotation: float = Field(default=0.0, ge=-180, le=180)
     font_family: str = "Arial"
@@ -23,14 +23,15 @@ class TextElement(BaseModel):
     height: Optional[float] = 50
 
     outline_color: Optional[str] = Field(default="#000000")
-    outline_size: Optional[int] = Field(default=1, ge=-1, le=31)
+    outline_size: Optional[Union[int, float]] = Field(default=1, ge=-1)
 
     text_align: Optional[str] = None
-    font_weight: Optional[Union[str, float]] = None
+    font_weight: Optional[Union[str, float, int]] = None
     font_style: Optional[str] = None
     underline: Optional[bool] = False
     linethrough: Optional[bool] = False
     effect_type: Optional[str] = None
+    all_caps: Optional[bool] = False
 
     # Shadow properties
     shadow_color: Optional[str] = Field(default="#000000")
@@ -38,6 +39,8 @@ class TextElement(BaseModel):
     shadow_offset_x: Optional[float] = None
     shadow_offset_y: Optional[float] = None
     shadow_opacity: Optional[float] = None
+
+    model_config = ConfigDict(extra="allow")
 
 # --- Users --- #
 class UserBase(BaseModel):
