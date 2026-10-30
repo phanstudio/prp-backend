@@ -19,4 +19,5 @@ dependencies = [
     "argon2-cffi",
     "asyncpg",
     "pillow",
+    "certifi",
 ]
